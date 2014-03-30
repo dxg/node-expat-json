@@ -6,45 +6,78 @@
 #include "nan.h"
 #include "parse.h"
 
+#define CHUNK 1048576
+
 using namespace v8;
 
-// This can't be in a separate thread because V8 doesn't
-// play nice with threads.
-void build(data_t *data, Persistent<Object> *returnObj)
+inline void write_to_data(dynamic_data_t *data, char *source, size_t bytes)
+{
+  while ( (data->len + bytes) > data->allocated) {
+    data->data = (char*)realloc((void*)data->data, data->allocated + CHUNK);
+    data->allocated += CHUNK;
+  }
+
+  memcpy(
+    (void*)&(data->data[data->len]),
+    source,
+    bytes
+  );
+
+  data->len += bytes;
+}
+
+void build(data_t *data, node::Buffer **returnBuffer)
 {
   NanScope();
 
+  dynamic_data_t string_data = {0, 0, NULL};
+  dynamic_data_t binary_data = {0, 0, NULL};
+  char next_node_type = 0;
+
   xml_node_t *curr_xml_node, *last_xml_node;
   xml_attr_t *curr_xml_attr, *last_xml_attr;
-  Local<Object> root;
-  Local<Object> curr_obj;
-  Local<Array>  curr_array;
-  std::stack< Local<Object> > stack;
   int skip_attrs_and_children = 0;
 
-  root = Object::New();
+  string_data.allocated = CHUNK;
+  string_data.data = (char*)malloc(sizeof(char) * string_data.allocated);
+
+  binary_data.allocated = CHUNK;
+  binary_data.data = (char*)malloc(sizeof(char) * binary_data.allocated);
+
+  // leave space for writing string data offset later
+  binary_data.len = 4;
+
+  // write number of nodes
+  write_to_data(&binary_data, (char*)&(data->node_count), sizeof(size_t));
 
   curr_xml_node = data->node;
-  stack.push(curr_obj);
-
-  curr_obj = root;
 
   do {
     if (!skip_attrs_and_children) {
-      // There may be multiple same-named elements, so they need to always go in an array.
-      if (curr_obj->Has(NanSymbol(curr_xml_node->name))) {
-        curr_array = Local<Array>::Cast( curr_obj->Get(NanSymbol(curr_xml_node->name)) );
-      } else {
-        curr_array = Array::New(0);
-        curr_obj->Set(NanSymbol(curr_xml_node->name), curr_array);
-      }
-      curr_obj = Object::New();
-      curr_array->Set(curr_array->Length(), curr_obj);
+
+      // indicate what comes next
+      next_node_type = 1; // node
+      write_to_data(&binary_data, &next_node_type, sizeof(char));
+
+      // write node name length & name
+      write_to_data(&binary_data, (char*)&(curr_xml_node->name_len), sizeof(size_t));
+      write_to_data(&string_data, (char*)(curr_xml_node->name), curr_xml_node->name_len);
+
+      // write number of attributes
+      write_to_data(&binary_data, (char*)&(curr_xml_node->attribute_count), sizeof(size_t));
 
       // Add all attributes
       if ((curr_xml_attr = curr_xml_node->attributes)) {
+
+        // add each attribute
+        // [name_len, value_len, name, value]
         do {
-          curr_obj->Set(NanSymbol(curr_xml_attr->name), String::New(curr_xml_attr->value));
+          // Skip text attribute if this node has children
+          write_to_data(&binary_data, (char*)&(curr_xml_attr->name_len),  sizeof(size_t));
+          write_to_data(&binary_data, (char*)&(curr_xml_attr->value_len), sizeof(size_t));
+
+          write_to_data(&string_data, (char*)(curr_xml_attr->name),  curr_xml_attr->name_len);
+          write_to_data(&string_data, (char*)(curr_xml_attr->value), curr_xml_attr->value_len);
 
           last_xml_attr = curr_xml_attr;
           curr_xml_attr = curr_xml_attr->next;
@@ -58,9 +91,11 @@ void build(data_t *data, Persistent<Object> *returnObj)
 
     if (!skip_attrs_and_children && curr_xml_node->children) {
       curr_xml_node = curr_xml_node->children;
-      stack.push(curr_obj);
+
+      next_node_type = 2; // deeper / child
+      write_to_data(&binary_data, &next_node_type, sizeof(char));
+
     } else if (curr_xml_node->next) {
-      curr_obj = stack.top();
 
       last_xml_node = curr_xml_node;
       curr_xml_node = curr_xml_node->next;
@@ -68,14 +103,16 @@ void build(data_t *data, Persistent<Object> *returnObj)
       delete last_xml_node;
 
       skip_attrs_and_children = 0;
+
     } else {
+      next_node_type = 3; // parent
+      write_to_data(&binary_data, &next_node_type, sizeof(char));
+
       last_xml_node = curr_xml_node;
       curr_xml_node = curr_xml_node->parent;
       delete last_xml_node->name;
       delete last_xml_node;
 
-      curr_obj = stack.top();
-      stack.pop();
       skip_attrs_and_children = 1;
     }
 
@@ -83,7 +120,26 @@ void build(data_t *data, Persistent<Object> *returnObj)
 
   delete data;
 
-  NanAssignPersistent(Object, *returnObj, root);
+  next_node_type = 0; // end
+  write_to_data(&binary_data, &next_node_type, sizeof(char));
+
+
+  // write string data offset at the beginning of binary_data
+  memcpy(
+    (void*)binary_data.data,
+    &(binary_data.len),
+    sizeof(size_t)
+  );
+
+  // combine buffers
+  write_to_data(&binary_data, string_data.data, string_data.len);
+  free(string_data.data);
+
+  *returnBuffer = node::Buffer::New(binary_data.data, binary_data.len);
+
+  fprintf(stderr, "C binary_data.len: %u\n", binary_data.len);
+
+  free(binary_data.data);
 }
 
 NAN_METHOD(convert) {
@@ -91,13 +147,13 @@ NAN_METHOD(convert) {
   size_t xml_str_len;
   char *xml_str = NULL;
   data_t *data = NULL;
-  Persistent<Object> obj;
+  node::Buffer *buffer;
   double start, end;
 
   NanScope();
 
   Local<String>  xml  = args[0]->ToString();
-  Local<Object>  opts = args[1]->ToObject();
+  //Local<Object>  opts = args[1]->ToObject();
   NanCallback   *cb   = new NanCallback(args[2].As<Function>());
 
   xml_str = (char*)NanRawString(xml, Nan::ASCII, &xml_str_len, NULL, 0, v8::String::NO_OPTIONS);
@@ -106,26 +162,20 @@ NAN_METHOD(convert) {
   ret = parse(xml_str, xml_str_len, &data);
   end = (double)clock()/CLOCKS_PER_SEC;
 
-  printf("C time parse: %0.3lfs\n", end - start);
+  printf("C time parse: %0.0lfms\n", (end - start) * 1000);
 
   delete xml_str;
 
-  // Why so slow?
-  // It turns out that setting V8 object properties in C++ land is
-  // actually quite slow, compared to setting them in JS land.
-  // V8 does fancy stuff in it's JSON.parse implementation by
-  // building the raw JSObjects. Us commoners are not allowed to
-  // do this, as the required classes are internal and not exposed.
   start = (double)clock()/CLOCKS_PER_SEC;
-  build(data, &obj);
+  build(data, &buffer);
   end = (double)clock()/CLOCKS_PER_SEC;
 
-  printf("C time build: %0.3lfs\n", end - start);
+  printf("C time build: %.0lfms\n", (end - start) * 1000);
 
-  Local<Value> argv[] = {
+  Local<Value> argv[3] = {
     Local<Value>::New(Null()),
     Number::New(123.5),
-    *obj
+    Local<Object>::New(buffer->handle_)
   };
 
   cb->Call(3, argv);

@@ -1,28 +1,25 @@
 {
-  "name":            "expat-object",
+  "name":            "expat-json",
   "version":         "0.1.0",
   "main":            "./lib/json",
-  "description":     "Native xml to json object converter utilising libexpat",
+  "description":     "C based xml to json converter utilising libexpat",
   "keywords":        ["xml","expat","libexpat","parse","json","object","fast"],
   "scripts": {
-    "test": "vows --spec ./test.js"
+    "test": "mocha test/"
   },
   "dependencies": {
     "nan": "~0.8.0"
   },
   "repository": {
     "type":          "git",
-    "path":          "git://github.com/dxg/node-expat-object.git"
+    "path":          "git://github.com/dxg/node-expat-json.git"
   },
-  "homepage":        "http://github.com/dxg/node-expat-object",
-  "bugs":            "http://github.com/dxg/node-expat-object/issues",
+  "homepage":        "http://github.com/dxg/node-expat-json",
+  "bugs":            "http://github.com/dxg/node-expat-json/issues",
   "author": {
     "name":          "Arek W",
     "email":         "arek01@gmail.com"
   },
-  "contributors": [
-    "node-expat PPLE. You know who you all are."
-  ],
   "licenses":        [{ "type": "MIT" }],
   "engines":         { "node": ">= 0.10" }
 }
