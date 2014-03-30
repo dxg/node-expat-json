@@ -70,4 +70,4 @@ void register_module(Handle<Object> exports) {
   exports->Set(NanSymbol("convert"), FunctionTemplate::New(convert)->GetFunction());
 }
 
-NODE_MODULE(node_expat_object,  register_module);
+NODE_MODULE(node_expat_json,  register_module);
