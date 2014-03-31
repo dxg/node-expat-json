@@ -138,6 +138,14 @@ function bufferToObject(buffer) {
   console.timeEnd("js build");
   opts = null;
 
+  return root;
+}
+
+console.time("## TOTAL");
+expat.convert(xml, { a: 2, b: 3 }, function (err, data, buffer) {
+  root = bufferToObject(buffer);
+  console.timeEnd("## TOTAL");
+
   str = JSON.stringify(root, null, 2);
 
   fs.writeFileSync('out.json', str);
@@ -145,11 +153,5 @@ function bufferToObject(buffer) {
   console.time("js json.parse");
   obj = JSON.parse(str);
   console.timeEnd("js json.parse");
-
-  return root;
-}
-
-expat.convert(xml, { a: 2, b: 3 }, function (err, data, buffer) {
-  bufferToObject(buffer);
 });
 
