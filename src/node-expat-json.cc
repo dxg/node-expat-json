@@ -5,12 +5,15 @@
 #include <node.h>
 #include "nan.h"
 #include "parse.h"
+#include <iostream>
+#include <string>
+#include <vector>
 
 #define CHUNK 1048576
 
 using namespace v8;
 
-inline void write_to_data(dynamic_data_t *data, char *source, size_t bytes)
+inline void write_to_data(dynamic_data_t *data, const char *source, size_t bytes)
 {
   while ( (data->len + bytes) > data->allocated) {
     data->data = (char*)realloc((void*)data->data, data->allocated + CHUNK);
@@ -26,136 +29,137 @@ inline void write_to_data(dynamic_data_t *data, char *source, size_t bytes)
   data->len += bytes;
 }
 
-void build(data_t *data, node::Buffer **returnBuffer)
+typedef struct {
+  std::string name;
+  std::vector<xml_node_t*> items;
+
+} xnode_hash_t;
+
+void to_json_rec(dynamic_data_t *json, xml_node_t *node)
 {
-  NanScope();
+  size_t a, b;
+  std::vector<xnode_hash_t*> hash;
+  xnode_hash_t *new_hash_item;
+  xml_attr *curr_attr;
+  xml_attr *last_attr;
 
-  dynamic_data_t string_data = {0, 0, NULL};
-  dynamic_data_t binary_data = {0, 0, NULL};
-  char next_node_type = 0;
+  xml_node_t *curr_xml_node = NULL;
+  xml_node_t *curr_child_node = NULL;
+  curr_xml_node = node;
 
-  xml_node_t *curr_xml_node, *last_xml_node;
-  xml_attr_t *curr_xml_attr, *last_xml_attr;
-  int skip_attrs_and_children = 0;
-
-  string_data.allocated = CHUNK;
-  string_data.data = (char*)malloc(sizeof(char) * string_data.allocated);
-
-  binary_data.allocated = CHUNK;
-  binary_data.data = (char*)malloc(sizeof(char) * binary_data.allocated);
-
-  // leave space for writing string data offset later
-  binary_data.len = 4;
-
-  // write number of nodes
-  write_to_data(&binary_data, (char*)&(data->node_count), sizeof(size_t));
-
-  curr_xml_node = data->node;
-
+  // prepare hash of nodes
   do {
-    if (!skip_attrs_and_children) {
+    for (a = 0; a < hash.size(); a++) {
+      if (strcmp(hash[a]->name.c_str(), curr_xml_node->name) == 0) break;
+    }
+    if (a == hash.size()) {
+      // not found
+      new_hash_item = new xnode_hash_t;
+      new_hash_item->name = curr_xml_node->name;
+      new_hash_item->items.push_back(curr_xml_node);
+      hash.push_back(new_hash_item);
+    } else {
+      // found
+      hash[a]->items.push_back(curr_xml_node);
+    }
 
-      // indicate what comes next
-      next_node_type = 1; // node
-      write_to_data(&binary_data, &next_node_type, sizeof(char));
+  } while ((curr_xml_node = curr_xml_node->next));
 
-      // write node name length & name
-      write_to_data(&binary_data, (char*)&(curr_xml_node->name_len), sizeof(size_t));
-      write_to_data(&string_data, (char*)(curr_xml_node->name), curr_xml_node->name_len);
+  //printf(" ## node->name: %s, size: %d\n", node->name, hash.size());
 
-      // write number of attributes
-      write_to_data(&binary_data, (char*)&(curr_xml_node->attribute_count), sizeof(size_t));
+  // write array of nodes grouped by name
+  for (a = 0; a < hash.size(); a++) {
+    write_to_data(json, "\"", 1);
+    write_to_data(json, hash[a]->name.c_str(), hash[a]->name.size());
+    write_to_data(json, "\": [", 4);
 
-      // Add all attributes
-      if ((curr_xml_attr = curr_xml_node->attributes)) {
+    // write individual nodes with same name
+    //printf("    items size: %d\n", hash[a]->items.size());
+    for (b = 0; b < hash[a]->items.size(); b++) {
+      curr_xml_node = hash[a]->items[b];
+      curr_child_node = curr_xml_node->children;
+      curr_attr = curr_xml_node->attributes;
 
-        // add each attribute
-        // [name_len, value_len, name, value]
+      // attributes
+      write_to_data(json, "{", 1);
+      if (curr_attr) {
         do {
-          // Skip text attribute if this node has children
-          write_to_data(&binary_data, (char*)&(curr_xml_attr->name_len),  sizeof(size_t));
-          write_to_data(&binary_data, (char*)&(curr_xml_attr->value_len), sizeof(size_t));
+          write_to_data(json, "\"", 1);
+          write_to_data(json, curr_attr->name, curr_attr->name_len);
+          write_to_data(json, "\": \"", 4);
+          write_to_data(json, curr_attr->value, curr_attr->value_len);
+          write_to_data(json, "\"", 1);
 
-          write_to_data(&string_data, (char*)(curr_xml_attr->name),  curr_xml_attr->name_len);
-          write_to_data(&string_data, (char*)(curr_xml_attr->value), curr_xml_attr->value_len);
+          if (curr_attr->next || curr_xml_node->children) {
+            write_to_data(json, ",", 1);
+          }
 
-          last_xml_attr = curr_xml_attr;
-          curr_xml_attr = curr_xml_attr->next;
-          delete last_xml_attr->name;
-          delete last_xml_attr->value;
-          delete last_xml_attr;
+          last_attr = curr_attr;
+          curr_attr = curr_attr->next;
 
-        } while(curr_xml_attr);
+          free(last_attr->name);
+          free(last_attr->value);
+          free(last_attr);
+        } while (curr_attr);
+      }
+
+      // children
+      if (curr_child_node) {
+        to_json_rec(json, curr_child_node);
+      }
+
+      free(curr_xml_node->name);
+      free(curr_xml_node);
+
+      write_to_data(json, "}", 1);
+
+      if (b != hash[a]->items.size() - 1) {
+        write_to_data(json, ",", 1);
       }
     }
 
-    if (!skip_attrs_and_children && curr_xml_node->children) {
-      curr_xml_node = curr_xml_node->children;
+    write_to_data(json, "]", 1);
 
-      next_node_type = 2; // deeper / child
-      write_to_data(&binary_data, &next_node_type, sizeof(char));
-
-    } else if (curr_xml_node->next) {
-
-      last_xml_node = curr_xml_node;
-      curr_xml_node = curr_xml_node->next;
-      delete last_xml_node->name;
-      delete last_xml_node;
-
-      skip_attrs_and_children = 0;
-
-    } else {
-      next_node_type = 3; // parent
-      write_to_data(&binary_data, &next_node_type, sizeof(char));
-
-      last_xml_node = curr_xml_node;
-      curr_xml_node = curr_xml_node->parent;
-      delete last_xml_node->name;
-      delete last_xml_node;
-
-      skip_attrs_and_children = 1;
+    if (a != hash.size() - 1) {
+      write_to_data(json, ",", 1);
     }
 
-  } while(curr_xml_node);
+    delete hash[a];
+  }
+}
 
-  delete data;
+void to_json(data_t *data, Persistent<String> *returnData)
+{
+  NanScope();
+  Local<String> tmp_string;
 
-  next_node_type = 0; // end
-  write_to_data(&binary_data, &next_node_type, sizeof(char));
+  dynamic_data_t json = {0, 0, NULL};
+  xml_node_t *curr_xml_node;
 
+  curr_xml_node = data->node;
+  write_to_data(&json, "{", 1);
+  to_json_rec(&json, curr_xml_node);
+  write_to_data(&json, "}", 1);
 
-  // write string data offset at the beginning of binary_data
-  memcpy(
-    (void*)binary_data.data,
-    &(binary_data.len),
-    sizeof(size_t)
-  );
-
-  // combine buffers
-  write_to_data(&binary_data, string_data.data, string_data.len);
-  free(string_data.data);
-
-  *returnBuffer = node::Buffer::New(binary_data.data, binary_data.len);
-
-  fprintf(stderr, "C binary_data.len: %u\n", binary_data.len);
-
-  free(binary_data.data);
+  tmp_string = String::New(json.data, json.len);
+  NanAssignPersistent(String, *returnData, tmp_string);
 }
 
 NAN_METHOD(convert) {
+  NanScope();
+
   int ret;
   size_t xml_str_len;
   char *xml_str = NULL;
   data_t *data = NULL;
-  node::Buffer *buffer;
-  double start, end;
-
-  NanScope();
+  Persistent<String> json_string;
+  double start, end, total_start, total_end;
 
   Local<String>  xml  = args[0]->ToString();
   //Local<Object>  opts = args[1]->ToObject();
   NanCallback   *cb   = new NanCallback(args[2].As<Function>());
 
+  total_start = (double)clock()/CLOCKS_PER_SEC;
   xml_str = (char*)NanRawString(xml, Nan::ASCII, &xml_str_len, NULL, 0, v8::String::NO_OPTIONS);
 
   start = (double)clock()/CLOCKS_PER_SEC;
@@ -167,16 +171,20 @@ NAN_METHOD(convert) {
   delete xml_str;
 
   start = (double)clock()/CLOCKS_PER_SEC;
-  build(data, &buffer);
+  to_json(data, &json_string);
   end = (double)clock()/CLOCKS_PER_SEC;
 
   printf("C time build: %.0lfms\n", (end - start) * 1000);
+  delete data;
 
   Local<Value> argv[3] = {
     Local<Value>::New(Null()),
     Number::New(123.5),
-    Local<Object>::New(buffer->handle_)
+    *json_string
   };
+
+  total_end = (double)clock()/CLOCKS_PER_SEC;
+  printf("C time total: %.0lfms\n", (total_end - total_start) * 1000);
 
   cb->Call(3, argv);
 
