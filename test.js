@@ -17,9 +17,9 @@ var jsParser  = require('xml2json');
 var xml = fs.readFileSync('resp.xml', 'ascii');
 
 
-console.time("C conversion total")
+console.time("## TOTAL")
 expat.convert(xml, { someOption: 5 }, function (err, data, object) {
-  console.timeEnd("C conversion total")
+  console.timeEnd("## TOTAL")
 
   console.time("js+c sax parser conversion")
   json = jsParser.toJson(xml, { object: true, arrayNotation: true, coerce: false, sanitize: false, reversible: true });
