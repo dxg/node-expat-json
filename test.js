@@ -23,7 +23,7 @@ function readObject(opts) {
 
   // node name
   len  = opts.binary.readUInt32LE(opts.binaryPos);
-  name = opts.string.substr(opts.stringPos, len)
+  name = opts.string.toString('ascii', opts.stringPos, opts.stringPos + len);
   opts.binaryPos += 4;
   opts.stringPos += len;
 
@@ -64,10 +64,10 @@ function readObject(opts) {
     aValueLen = opts.binary.readUInt32LE(opts.binaryPos);
     opts.binaryPos += 4;
 
-    aName = opts.string.substr(opts.stringPos, aNameLen);
+    aName = opts.string.toString('ascii', opts.stringPos, opts.stringPos + aNameLen);
     opts.stringPos += aNameLen;
 
-    aValue = opts.string.substr(opts.stringPos, aValueLen);
+    aValue = opts.string.toString('ascii', opts.stringPos, opts.stringPos + aValueLen);
     opts.stringPos += aValueLen;
 
     obj[aName] = aValue;
@@ -94,7 +94,7 @@ function bufferToObject(buffer) {
   // split buffer into string & binary parts
   len = buffer.readUInt32LE(0);
   opts.binaryPos += 4;
-  opts.string = buffer.toString('ascii', len);
+  opts.string = buffer.slice(len);
   opts.binary = buffer.slice(0, len);
   buffer = null;
 
