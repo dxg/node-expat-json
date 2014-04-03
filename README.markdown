@@ -22,11 +22,11 @@ Using [libexpat](http://expat.sourceforge.net/) and some C++ code
 1. Find a suitably large XML file, eg ftp://ftp.archive.de.uu.net/pub/documents/rfc/rfc-index.xml
 2. Rename it to `resp.xml`
 3. Checkout the branch you want
-4. npm install -g node-gyp
-5. npm install
+4. `npm install -g node-gyp`
+5. `npm install`
 6. `node-gyp configure`
 7. `node-gyp build`
-8. node test.js
+8. `node test.js`
 
 You will need to run steps 5-7 every time you change branches.
 
