@@ -1,4 +1,3 @@
-var _         = require('lodash');
 var fs        = require('fs');
 var expat     = require('./lib/node-expat');
 var templates = require('./templates');
