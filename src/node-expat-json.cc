@@ -13,11 +13,11 @@
 
 using namespace v8;
 
-inline void write_to_data(dynamic_data_t *data, const char *source, size_t bytes)
+inline void write_to_data(dynamic_data_t *data, const char *source, size_t bytes, size_t chunk)
 {
   while ( (data->len + bytes) > data->allocated) {
-    data->data = (char*)realloc((void*)data->data, data->allocated + CHUNK);
-    data->allocated += CHUNK;
+    data->data = (char*)realloc((void*)data->data, data->allocated + chunk);
+    data->allocated += chunk;
   }
 
   memcpy(
@@ -29,11 +29,56 @@ inline void write_to_data(dynamic_data_t *data, const char *source, size_t bytes
   data->len += bytes;
 }
 
+inline void write_to_data(dynamic_data_t *data, const char *source, size_t bytes)
+{
+  write_to_data(data, source, bytes, CHUNK);
+}
+
 typedef struct {
   std::string name;
   std::vector<xml_node_t*> items;
 
 } xnode_hash_t;
+
+void escape(dynamic_data_t *escaped, char *data, size_t len) {
+  size_t a;
+  char temp[8];
+
+  if (len == 0) return;
+
+  for (a = 0; a < len; a++) {
+    switch (data[a]) {
+      case '\\':
+      case '"':
+        write_to_data(escaped, "\\", 1, 1024);
+        write_to_data(escaped, &(data[a]), 1, 1024);
+        break;
+      case '\b':
+        write_to_data(escaped, "\\b", 2, 1024);
+        break;
+      case '\f':
+        write_to_data(escaped, "\\f", 2, 1024);
+        break;
+      case '\n':
+        write_to_data(escaped, "\\n", 2, 1024);
+        break;
+      case '\r':
+        write_to_data(escaped, "\\r", 2, 1024);
+        break;
+      case '\t':
+        write_to_data(escaped, "\\t", 2, 1024);
+        break;
+      default:
+        if (data[a] < ' ') {
+          snprintf(temp, 8, "%04x", data[a]);
+          write_to_data(escaped, temp, strlen(temp), 1024);
+        } else {
+          write_to_data(escaped, &(data[a]), 1, 1024);
+        }
+    }
+
+  }
+}
 
 void to_json_rec(dynamic_data_t *json, xml_node_t *node)
 {
@@ -46,6 +91,7 @@ void to_json_rec(dynamic_data_t *json, xml_node_t *node)
   xml_node_t *curr_xml_node = NULL;
   xml_node_t *curr_child_node = NULL;
   curr_xml_node = node;
+  dynamic_data_t escaped = {0, 0, NULL};;
 
   // prepare hash of nodes
   do {
@@ -84,11 +130,18 @@ void to_json_rec(dynamic_data_t *json, xml_node_t *node)
       write_to_data(json, "{", 1);
       if (curr_attr) {
         do {
+          escaped.len = 0;
+          escaped.allocated = 0;
+          escaped.data = NULL;
+
           write_to_data(json, "\"", 1);
           write_to_data(json, curr_attr->name, curr_attr->name_len);
           write_to_data(json, "\": \"", 4);
-          write_to_data(json, curr_attr->value, curr_attr->value_len);
+          escape(&escaped, curr_attr->value, curr_attr->value_len);
+          write_to_data(json, escaped.data, escaped.len);
           write_to_data(json, "\"", 1);
+
+          free(escaped.data);
 
           if (curr_attr->next || curr_xml_node->children) {
             write_to_data(json, ",", 1);
@@ -100,6 +153,7 @@ void to_json_rec(dynamic_data_t *json, xml_node_t *node)
           free(last_attr->name);
           free(last_attr->value);
           free(last_attr);
+
         } while (curr_attr);
       }
 
