@@ -1,4 +1,6 @@
 #include "parse.h"
+#define SNIPPET_SIZE 20
+
 
 void add_attr_to_current(data_t *data, const char *name, const char *value)
 {
@@ -72,6 +74,7 @@ void end_element(void *data, const char *el)
   d->current_node = d->current_node->parent;
 }
 
+// TODO add support for multiple calls of this inside a single tag.
 // pastes parts of the node together
 void char_data(void *data, const XML_Char *s, int len)
 {
@@ -89,12 +92,12 @@ void char_data(void *data, const XML_Char *s, int len)
   char str[sz + sizeof(XML_Char)];
 
   memcpy(str, s, sz);
-  str[sz - sizeof(XML_Char)] = 0;
+  str[sz] = 0;
 
   add_attr_to_current((data_t*)data, "$t", str);
 }
 
-int parse(char *xml, size_t xml_len, data_t **data)
+int parse(str_t &xml, data_t **data)
 {
   XML_Parser parser;
   int ret = 0;
@@ -107,12 +110,28 @@ int parse(char *xml, size_t xml_len, data_t **data)
   XML_SetElementHandler(parser, start_element, end_element);
   XML_SetCharacterDataHandler(parser, char_data);
 
-  ret = XML_Parse(parser, xml, xml_len, XML_TRUE);
+  ret = XML_Parse(parser, xml.txt, xml.len, XML_TRUE);
 
   XML_ParserFree(parser);
 
   if (ret == XML_STATUS_ERROR) {
-    printf("Error: %d, %s\n", XML_GetErrorCode(parser), XML_ErrorString(XML_GetErrorCode(parser)));
+    XML_Error        error_code           = XML_GetErrorCode(parser);
+    const XML_LChar *error_string         = XML_ErrorString(error_code);
+    XML_Size         line_number          = XML_GetCurrentLineNumber(parser);
+    XML_Size         column_number        = XML_GetCurrentColumnNumber(parser);
+    XML_Size         byte_index           = XML_GetCurrentByteIndex(parser);
+    XML_Size         snippet_start        = 0;
+    XML_Size         snippet_end          = 0;
+    XML_Size         snippet_len          = 0;
+    XML_LChar        snippet[SNIPPET_SIZE] = { 0 };
+
+    snippet_start = fmax(0,       byte_index);
+    snippet_end   = fmin(xml.len, byte_index + SNIPPET_SIZE - 1);
+    snippet_len   = snippet_end - snippet_start;
+
+    strncpy(&snippet[snippet_start], xml.txt, snippet_len * sizeof(XML_LChar));
+
+    printf("Error: %s at %u,%u: %s\n", error_string, line_number, column_number, snippet);
     return -1;
   } else {
     return 0;

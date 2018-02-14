@@ -14,13 +14,13 @@ xml += '</box>';
 
 var xml = fs.readFileSync('resp.xml', 'ascii');
 
-console.time("## TOTAL");
-expat.convert(xml, { a: 2, b: 3 }, function (err, data, jsonStr) {
+console.time("# TOTAL");
+expat.convert(xml, { a: 2, b: 3 }, function (err, jsonStr) {
   console.time("json.parse");
   var json = JSON.parse(jsonStr);
   console.timeEnd("json.parse");
 
-  console.timeEnd("## TOTAL");
+  console.timeEnd("# TOTAL");
 
   fs.writeFileSync("out2.json", JSON.stringify(json, null, 2));
 });

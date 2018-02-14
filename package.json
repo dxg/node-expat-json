@@ -1,25 +1,39 @@
 {
-  "name":            "expat-json",
-  "version":         "0.1.0",
-  "main":            "./lib/json",
-  "description":     "C based xml to json converter utilising libexpat",
-  "keywords":        ["xml","expat","libexpat","parse","json","object","fast"],
+  "name": "expat-json",
+  "version": "0.2.0",
+  "main": "./lib/json",
+  "description": "C based xml to json converter utilising libexpat",
+  "keywords": [
+    "xml",
+    "expat",
+    "libexpat",
+    "parse",
+    "json",
+    "object",
+    "fast"
+  ],
   "scripts": {
     "test": "mocha test/"
   },
   "dependencies": {
-    "nan": "~0.8.0"
+    "nan": "~2.8.0"
   },
   "repository": {
-    "type":          "git",
-    "path":          "git://github.com/dxg/node-expat-json.git"
+    "type": "git",
+    "path": "git://github.com/dxg/node-expat-json.git"
   },
-  "homepage":        "http://github.com/dxg/node-expat-json",
-  "bugs":            "http://github.com/dxg/node-expat-json/issues",
+  "homepage": "http://github.com/dxg/node-expat-json",
+  "bugs": "http://github.com/dxg/node-expat-json/issues",
   "author": {
-    "name":          "Arek W",
-    "email":         "arek01@gmail.com"
+    "name": "Arek W",
+    "email": "arek01@gmail.com"
   },
-  "licenses":        [{ "type": "MIT" }],
-  "engines":         { "node": ">= 0.10" }
+  "licenses": [
+    {
+      "type": "MIT"
+    }
+  ],
+  "engines": {
+    "node": ">= 0.10"
+  }
 }

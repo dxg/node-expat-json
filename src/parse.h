@@ -1,3 +1,4 @@
+#include <math.h>
 #include <time.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -50,4 +51,4 @@ typedef struct {
 
 } data_t;
 
-int parse(char *xml, size_t xml_len, data_t **data);
+int parse(str_t &xml, data_t **data);

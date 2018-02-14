@@ -9,9 +9,10 @@
 #include <string>
 #include <vector>
 
-#define CHUNK 1048576
 
-using namespace v8;
+#define CHUNK 1048576
+//#define DEBUG
+
 
 inline void write_to_data(dynamic_data_t *data, const char *source, size_t bytes, size_t chunk)
 {
@@ -182,71 +183,111 @@ void to_json_rec(dynamic_data_t *json, xml_node_t *node)
   }
 }
 
-void to_json(data_t *data, Persistent<String> *returnData)
+void to_json(data_t *data, str_t &json)
 {
-  NanScope();
-  Local<String> tmp_string;
-
-  dynamic_data_t json = {0, 0, NULL};
+  dynamic_data_t json_d = {0, 0, NULL};
   xml_node_t *curr_xml_node;
 
   curr_xml_node = data->node;
-  write_to_data(&json, "{", 1);
-  to_json_rec(&json, curr_xml_node);
-  write_to_data(&json, "}", 1);
 
-  tmp_string = String::New(json.data, json.len);
-  NanAssignPersistent(String, *returnData, tmp_string);
+  write_to_data(&json_d, "{", 1);
+  to_json_rec(&json_d, curr_xml_node);
+  write_to_data(&json_d, "}", 1);
+
+  json.len = json_d.len;
+  json.txt = json_d.data;
 }
 
-NAN_METHOD(convert) {
-  NanScope();
-
+void convert(str_t &xml, str_t &json) {
   int ret;
-  size_t xml_str_len;
-  char *xml_str = NULL;
   data_t *data = NULL;
-  Persistent<String> json_string;
   double start, end, total_start, total_end;
 
-  Local<String>  xml  = args[0]->ToString();
-  //Local<Object>  opts = args[1]->ToObject();
-  NanCallback   *cb   = new NanCallback(args[2].As<Function>());
-
   total_start = (double)clock()/CLOCKS_PER_SEC;
-  xml_str = (char*)NanRawString(xml, Nan::ASCII, &xml_str_len, NULL, 0, v8::String::NO_OPTIONS);
 
   start = (double)clock()/CLOCKS_PER_SEC;
-  ret = parse(xml_str, xml_str_len, &data);
+  ret = parse(xml, &data);
   end = (double)clock()/CLOCKS_PER_SEC;
 
+  #ifdef DEBUG
   printf("C time parse: %0.0lfms\n", (end - start) * 1000);
+  #endif
 
-  delete xml_str;
+  free(xml.txt);
+  xml.txt = NULL;
+  xml.len = 0;
 
   start = (double)clock()/CLOCKS_PER_SEC;
-  to_json(data, &json_string);
+  to_json(data, json);
   end = (double)clock()/CLOCKS_PER_SEC;
 
+  #ifdef DEBUG
   printf("C time build: %.0lfms\n", (end - start) * 1000);
+  #endif
+
   delete data;
 
-  Local<Value> argv[3] = {
-    Local<Value>::New(Null()),
-    Number::New(123.5),
-    *json_string
-  };
-
   total_end = (double)clock()/CLOCKS_PER_SEC;
+
+  #ifdef DEBUG
   printf("C time total: %.0lfms\n", (total_end - total_start) * 1000);
-
-  cb->Call(3, argv);
-
-  NanReturnUndefined();
+  #endif
 }
 
-void register_module(Handle<Object> exports) {
-  exports->Set(NanSymbol("convert"), FunctionTemplate::New(convert)->GetFunction());
+
+class XMLToJSONConverter : public Nan::AsyncWorker {
+  public:
+    XMLToJSONConverter(Nan::Callback *callback, str_t &xml)
+      : Nan::AsyncWorker(callback), xml(xml), json({0, NULL}) {}
+    ~XMLToJSONConverter() {}
+
+    // Executed inside the worker-thread.
+    // It is not safe to access V8, or V8 data structures
+    // here, so everything we need for input and output
+    // should go on `this`.
+    void Execute () {
+      convert(xml, json);
+      free(xml.txt);
+    }
+
+    // Executed when the async work is complete
+    // this function will be run inside the main event loop
+    // so it is safe to use V8 again
+    void HandleOKCallback () {
+      Nan::HandleScope scope;
+
+      v8::Local<v8::Value> argv[] = {
+        Nan::Null(),
+        Nan::New<v8::String>(json.txt, json.len).ToLocalChecked()
+      };
+      free(json.txt);
+
+      callback->Call(2, argv);
+   }
+
+  private:
+    str_t xml;
+    str_t json;
+};
+
+NAN_METHOD(setup) {
+  str_t xml = { 0, NULL };
+
+  Nan::Callback  *cb = new Nan::Callback(Nan::To<v8::Function>(info[2]).ToLocalChecked());
+  Nan::Utf8String us(info[0]);
+
+  xml.len = us.length();
+  xml.txt = (char*)calloc(xml.len + 1, sizeof(char));
+  strncpy(xml.txt, *us, xml.len * sizeof(char));
+
+  AsyncQueueWorker(new XMLToJSONConverter(cb, xml));
+}
+
+NAN_MODULE_INIT(register_module) {
+  Nan::Set(
+    target, Nan::New<v8::String>("convert").ToLocalChecked(),
+    Nan::GetFunction(Nan::New<v8::FunctionTemplate>(setup)).ToLocalChecked()
+  );
 }
 
 NODE_MODULE(node_expat_json,  register_module);
