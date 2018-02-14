@@ -1,5 +1,8 @@
-var fs        = require('fs');
-var expat     = require('./lib/node-expat');
+var async         = require('async');
+var fs            = require('fs');
+var nodeExpatJson = require('./lib/node-expat');
+var xml2json      = require('xml2json');
+
 
 var xml = ""
 xml += '<box colour="grey">';
@@ -8,20 +11,62 @@ xml += '    <page number="1"></page>';
 xml += '  </book>';
 xml += '  <book title="Counting to 10">';
 xml += '    <page number="1"></page>';
-xml += '    <page number="2"></page>';
+xml += '    <page number="2">abcd</page>';
 xml += '  </book>';
 xml += '</box>';
 
-var xml = fs.readFileSync('resp.xml', 'ascii');
+var xml = fs.readFileSync('resp.xml', 'utf8');
 
-console.time("# TOTAL");
-expat.convert(xml, { a: 2, b: 3 }, function (err, jsonStr) {
-  console.time("json.parse");
-  var json = JSON.parse(jsonStr);
-  console.timeEnd("json.parse");
+function printTitle(title) {
+  console.log("\n\n---------------");
+  console.log(title);
+  console.log(    "---------------\n");
+}
 
-  console.timeEnd("# TOTAL");
+var tests = [
+ {
+    name: "node-expat-json",
+    run: function (time, cb) {
+      nodeExpatJson.convert(xml, { a: 2, b: 3 }, function (err, jsonStr) {
+        //console.time("  json.parse");
+        var json = JSON.parse(jsonStr);
+        //console.timeEnd("  json.parse");
 
-  fs.writeFileSync("out2.json", JSON.stringify(json, null, 2));
-});
+        cb(null, json);
+      });
+    }
+  },
+  {
+    name: "xml2json",
+    run: function (time, cb) {
+      var json = xml2json.toJson(xml, {
+        object: true, arrayNotation: true, coerce: false,
+        sanitize: false, reversible: true, trim: false
+      });
 
+      cb(null, json);
+    }
+  }
+];
+
+function start() {
+  var numRuns = 1;
+
+  async.eachSeries(tests, function (test, cb) {
+    printTitle(`${numRuns} runs of ${test.name}`);
+    console.time("# Total");
+    async.times(numRuns, test.run, function (err, data) {
+      console.timeEnd("# Total");
+      if (err) return cb(err);
+
+      fs.writeFile(`out-${test.name}.json`, JSON.stringify(data, null, 2), cb);
+
+      cb();
+    });
+  }, function (err) {
+    if (err) throw err;
+    console.log("\n\nDone.");
+  });
+}
+
+start();
